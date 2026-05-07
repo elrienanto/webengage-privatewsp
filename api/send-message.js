@@ -124,8 +124,8 @@ export async function sendMessage(req, res) {
         // TWILIO CALLBACK URL
         // =====================================
 
-        StatusCallback:
-          "https://webengage-privatewsp.vercel.app/api/status-callback"
+     StatusCallback:
+  `https://webengage-privatewsp.vercel.app/api/status-callback?weMessageId=${webengageMessageId}`
       }),
       {
         auth: {
@@ -198,7 +198,7 @@ export async function statusCallback(req, res) {
       req.body?.To;
 
     const webengageMessageId =
-      messageStore[twilioSid] || twilioSid;
+  req.query.weMessageId;
 
     console.log({
       twilioSid,
