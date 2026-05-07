@@ -2,47 +2,58 @@
 
 import axios from "axios";
 
-export default async function handler(req, res) {
+// =========================================
+// TEMPLATE MAPPING
+// =========================================
 
-  // =========================================
-  // ONLY ALLOW POST
-  // =========================================
+const templateMap = {
+  "Appointment Reminders":
+    "HXb5b62575e6e4ff6129ad7c8efe1f983e"
+};
+
+// =========================================
+// SIMPLE IN-MEMORY STORE
+// POC ONLY
+// webengageMessageId ↔ twilioSid
+// =========================================
+
+const messageStore = {};
+
+// =========================================
+// SEND MESSAGE HANDLER
+// =========================================
+
+export async function sendMessage(req, res) {
 
   if (req.method !== "POST") {
     return res.status(405).json({
-      responseCode: "METHOD_NOT_ALLOWED",
-      responseMessage: "Method not allowed"
+      status: "whatsapp_rejected",
+      statusCode: 9988,
+      message: "Method not allowed"
     });
   }
 
   try {
 
     // =========================================
-    // API KEY AUTH
+    // AUTH VALIDATION
     // =========================================
 
     const apiKey = req.headers["x-api-key"];
 
     if (apiKey !== process.env.API_KEY) {
-
       return res.status(401).json({
-        responseCode: "AUTH_FAILED",
-        responseMessage: "Unauthorized"
+        status: "whatsapp_rejected",
+        statusCode: 2005,
+        message: "Authorization failure"
       });
     }
 
-    // =========================================
-    // LOG FULL REQUEST
-    // =========================================
-
-    console.log("=================================");
-    console.log("WEBENGAGE REQUEST RECEIVED");
-    console.log("=================================");
-
+    console.log("WEBENGAGE REQUEST:");
     console.log(JSON.stringify(req.body, null, 2));
 
     // =========================================
-    // EXTRACT REQUIRED FIELDS
+    // EXTRACT PAYLOAD
     // =========================================
 
     const toNumber =
@@ -54,42 +65,22 @@ export default async function handler(req, res) {
     const templateVariables =
       req.body?.whatsAppData?.templateData?.templateVariables || [];
 
-    const messageId =
+    const webengageMessageId =
       req.body?.metadata?.messageId;
-
-    const timestamp =
-      req.body?.metadata?.timestamp;
-
-    console.log("Parsed Data:");
-    console.log({
-      toNumber,
-      templateName,
-      templateVariables,
-      messageId,
-      timestamp
-    });
 
     // =========================================
     // TEMPLATE MAPPING
     // =========================================
 
-    const templateMap = {
-      "Appointment Reminders":
-        "HXb5b62575e6e4ff6129ad7c8efe1f983e"
-    };
-
     const contentSid =
       templateMap[templateName];
-
-    // =========================================
-    // HANDLE UNKNOWN TEMPLATE
-    // =========================================
 
     if (!contentSid) {
 
       return res.status(400).json({
-        responseCode: "TEMPLATE_NOT_FOUND",
-        responseMessage: "Template mapping not found"
+        status: "whatsapp_rejected",
+        statusCode: 2021,
+        message: "Template Missing"
       });
     }
 
@@ -126,26 +117,26 @@ export default async function handler(req, res) {
       }
     );
 
-    // =========================================
-    // LOG TWILIO RESPONSE
-    // =========================================
-
     console.log("TWILIO RESPONSE:");
     console.log(twilioResponse.data);
+
+    // =========================================
+    // STORE MESSAGE MAPPING
+    // =========================================
+
+    messageStore[twilioResponse.data.sid] =
+      webengageMessageId;
+
+    console.log("MESSAGE STORE:");
+    console.log(messageStore);
 
     // =========================================
     // WEBENGAGE SUCCESS RESPONSE
     // =========================================
 
     return res.status(200).json({
-      responseCode: "SUCCESS",
-      responseMessage: "Message accepted successfully",
-      metaData: {
-        messageId: messageId,
-        providerMessageId: twilioResponse.data.sid,
-        status: "ACCEPTED",
-        timestamp: new Date().toISOString()
-      }
+      status: "whatsapp_accepted",
+      statusCode: 0
     });
 
   } catch (error) {
@@ -155,19 +146,107 @@ export default async function handler(req, res) {
       error.response?.data || error.message
     );
 
-    // =========================================
-    // WEBENGAGE FAILURE RESPONSE
-    // =========================================
-
-    return res.status(500).json({
-      responseCode: "FAILED",
-      responseMessage:
+    return res.status(200).json({
+      status: "whatsapp_rejected",
+      statusCode: 9988,
+      message:
         error.response?.data?.message ||
-        error.message ||
-        "Unknown error",
-      metaData: {
-        timestamp: new Date().toISOString()
-      }
+        error.message
     });
   }
+}
+
+// =========================================
+// TWILIO STATUS CALLBACK HANDLER
+// =========================================
+
+export async function statusCallback(req, res) {
+
+  try {
+
+    console.log("TWILIO CALLBACK:");
+    console.log(req.body);
+
+    const twilioSid =
+      req.body?.MessageSid;
+
+    const twilioStatus =
+      req.body?.MessageStatus;
+
+    const webengageMessageId =
+      messageStore[twilioSid];
+
+    console.log({
+      twilioSid,
+      twilioStatus,
+      webengageMessageId
+    });
+
+    // =========================================
+    // MAP TWILIO STATUS
+    // =========================================
+
+    let status = "whatsapp_accepted";
+    let statusCode = 0;
+
+    if (
+      twilioStatus === "failed" ||
+      twilioStatus === "undelivered"
+    ) {
+      status = "whatsapp_rejected";
+      statusCode = 2009;
+    }
+
+    // =========================================
+    // SEND DSN TO WEBENGAGE
+    // =========================================
+
+    const dsnPayload = {
+      messageId: webengageMessageId,
+      status,
+      statusCode,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log("WEBENGAGE DSN:");
+    console.log(dsnPayload);
+
+    await axios.post(
+      "http://wt.webengage.com/tracking/events",
+      dsnPayload,
+      {
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log("DSN SENT SUCCESSFULLY");
+
+    return res.status(200).send("OK");
+
+  } catch (error) {
+
+    console.error("CALLBACK ERROR:");
+    console.error(
+      error.response?.data || error.message
+    );
+
+    return res.status(500).send("ERROR");
+  }
+}
+
+// =========================================
+// ROUTER
+// =========================================
+
+export default async function handler(req, res) {
+
+  if (
+    req.url.includes("status-callback")
+  ) {
+    return statusCallback(req, res);
+  }
+
+  return sendMessage(req, res);
 }
