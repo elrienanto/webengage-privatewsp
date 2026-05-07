@@ -70,7 +70,7 @@ export default async function handler(req, res) {
 
     // Hardcoded mapping for POC
     const templateMap = {
-      Appointment Reminders:
+      "Appointment Reminders":
         "HXb5b62575e6e4ff6129ad7c8efe1f983e"
     };
 
