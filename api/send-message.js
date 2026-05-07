@@ -211,15 +211,17 @@ export async function statusCallback(req, res) {
     console.log("WEBENGAGE DSN:");
     console.log(dsnPayload);
 
-    await axios.post(
-      "http://wt.webengage.com/tracking/events",
-      dsnPayload,
-      {
-        headers: {
-          "Content-Type": "application/json"
-        }
-      }
-    );
+   await axios.post(
+  "http://wt.webengage.com/tracking/events",
+  dsnPayload,
+  {
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization":
+        `Bearer ${process.env.WEBENGAGE_DSN_TOKEN}`
+    }
+  }
+);
 
     console.log("DSN SENT SUCCESSFULLY");
 
