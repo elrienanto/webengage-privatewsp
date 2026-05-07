@@ -214,10 +214,13 @@ export async function statusCallback(req, res) {
     let statusCode = 0;
     let reason = "message sent successfully";
 
-    if (twilioStatus === "delivered") {
-      status = "whatsapp_delivered";
-      reason = "message delivered successfully";
-    }
+   if (
+  twilioStatus === "sent" ||
+  twilioStatus === "delivered"
+) {
+  status = "whatsapp_sent";
+  reason = "message sent successfully";
+}
 
     if (twilioStatus === "read") {
       status = "whatsapp_read";
