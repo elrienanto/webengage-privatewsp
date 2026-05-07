@@ -10,8 +10,8 @@ export default async function handler(req, res) {
 
   if (req.method !== "POST") {
     return res.status(405).json({
-      success: false,
-      message: "Method not allowed"
+      responseCode: "METHOD_NOT_ALLOWED",
+      responseMessage: "Method not allowed"
     });
   }
 
@@ -24,9 +24,10 @@ export default async function handler(req, res) {
     const apiKey = req.headers["x-api-key"];
 
     if (apiKey !== process.env.API_KEY) {
+
       return res.status(401).json({
-        success: false,
-        message: "Unauthorized"
+        responseCode: "AUTH_FAILED",
+        responseMessage: "Unauthorized"
       });
     }
 
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
     console.log(JSON.stringify(req.body, null, 2));
 
     // =========================================
-    // EXTRACT REQUIRED FIELDS ONLY
+    // EXTRACT REQUIRED FIELDS
     // =========================================
 
     const toNumber =
@@ -49,6 +50,9 @@ export default async function handler(req, res) {
 
     const templateName =
       req.body?.whatsAppData?.templateData?.templateName;
+
+    const templateVariables =
+      req.body?.whatsAppData?.templateData?.templateVariables || [];
 
     const messageId =
       req.body?.metadata?.messageId;
@@ -60,6 +64,7 @@ export default async function handler(req, res) {
     console.log({
       toNumber,
       templateName,
+      templateVariables,
       messageId,
       timestamp
     });
@@ -68,7 +73,6 @@ export default async function handler(req, res) {
     // TEMPLATE MAPPING
     // =========================================
 
-    // Hardcoded mapping for POC
     const templateMap = {
       "Appointment Reminders":
         "HXb5b62575e6e4ff6129ad7c8efe1f983e"
@@ -83,22 +87,24 @@ export default async function handler(req, res) {
 
     if (!contentSid) {
 
-      console.log("Template not mapped");
-
       return res.status(400).json({
-        success: false,
-        message: "Template not mapped"
+        responseCode: "TEMPLATE_NOT_FOUND",
+        responseMessage: "Template mapping not found"
       });
     }
 
     // =========================================
-    // HARDCODED VARIABLES FOR POC
+    // DYNAMIC VARIABLE MAPPING
     // =========================================
 
-    const contentVariables = {
-      "1": "12/1",
-      "2": "3pm"
-    };
+    const contentVariables = {};
+
+    templateVariables.forEach((value, index) => {
+      contentVariables[(index + 1).toString()] = value;
+    });
+
+    console.log("Mapped Variables:");
+    console.log(contentVariables);
 
     // =========================================
     // SEND TO TWILIO
@@ -128,13 +134,18 @@ export default async function handler(req, res) {
     console.log(twilioResponse.data);
 
     // =========================================
-    // SUCCESS RESPONSE
+    // WEBENGAGE SUCCESS RESPONSE
     // =========================================
 
     return res.status(200).json({
-      success: true,
-      messageId,
-      twilioSid: twilioResponse.data.sid
+      responseCode: "SUCCESS",
+      responseMessage: "Message accepted successfully",
+      metaData: {
+        messageId: messageId,
+        providerMessageId: twilioResponse.data.sid,
+        status: "ACCEPTED",
+        timestamp: new Date().toISOString()
+      }
     });
 
   } catch (error) {
@@ -144,10 +155,19 @@ export default async function handler(req, res) {
       error.response?.data || error.message
     );
 
+    // =========================================
+    // WEBENGAGE FAILURE RESPONSE
+    // =========================================
+
     return res.status(500).json({
-      success: false,
-      error:
-        error.response?.data || error.message
+      responseCode: "FAILED",
+      responseMessage:
+        error.response?.data?.message ||
+        error.message ||
+        "Unknown error",
+      metaData: {
+        timestamp: new Date().toISOString()
+      }
     });
   }
 }
